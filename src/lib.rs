@@ -6,10 +6,15 @@
 #![no_std]
 #![allow(dead_code)]
 
+use embedded_hal::blocking::spi::Write;
 use embedded_hal::digital::v2::OutputPin;
 
 /// DAC8564
-pub struct Dac<NSS, LDAC, ENABLE> {
+pub struct DAC8564<SPI, NSS, LDAC, ENABLE>
+where
+    SPI: Write<u8>,
+{
+    spi: SPI,
     nss: NSS,
     ldac: LDAC,
     enable: ENABLE,
@@ -17,7 +22,7 @@ pub struct Dac<NSS, LDAC, ENABLE> {
 }
 
 /// Channel selection enum
-/// DAC5864 has 4 different channels
+/// DAC8564 has 4 different channels
 #[allow(dead_code)]
 #[repr(u8)]
 #[derive(PartialEq)]
@@ -31,22 +36,19 @@ pub enum Channel {
     /// Channel D
     D = 0b0110,
     /// All Channels
-    ALL = 0b0111,
+    All = 0b0111,
 }
 
-impl Channel {
+impl From<u8> for Channel {
     /// Get the Channel enumeration from an index (begins at 0)
-    pub fn from_index(index: u8) -> Channel {
-        if index == 0 {
-            return Channel::A;
-        } else if index == 1 {
-            return Channel::B;
-        } else if index == 2 {
-            return Channel::C;
-        } else if index == 3 {
-            return Channel::D;
+    fn from(index: u8) -> Self {
+        match index {
+            0 => Channel::A,
+            1 => Channel::B,
+            2 => Channel::C,
+            3 => Channel::D,
+            _ => panic!("Channel unknown for index {}", index),
         }
-        panic!("Channel unknown for index {}", index);
     }
 }
 
@@ -85,15 +87,17 @@ fn delay() {
     }
 }
 
-impl<NSS, LDAC, ENABLE> Dac<NSS, LDAC, ENABLE>
+impl<SPI, NSS, LDAC, ENABLE, E> DAC8564<SPI, NSS, LDAC, ENABLE>
 where
+    SPI: Write<u8, Error = E>,
     NSS: OutputPin,
     LDAC: OutputPin,
     ENABLE: OutputPin,
 {
     /// Initialize a new instance of DAC8564
-    pub fn new(nss: NSS, ldac: LDAC, enable: ENABLE) -> Self {
+    pub fn new(spi: SPI, nss: NSS, ldac: LDAC, enable: ENABLE) -> Self {
         Self {
+            spi,
             nss,
             ldac,
             enable,
@@ -122,7 +126,6 @@ where
     /// Write to the DAC via a blocking call on the specified SPI interface
     pub fn write_blocking(
         &mut self,
-        spi: &mut dyn embedded_hal::blocking::spi::Write<u8, Error = ()>,
         channel: Channel,
         value: u16,
     ) -> Result<(), DacError> {
@@ -133,7 +136,7 @@ where
 
         self.enable.set_low().unwrap_or_default();
         self.nss.set_low().unwrap_or_default();
-        let result = spi.write(&command);
+        let result = self.spi.write(&command);
         self.nss.set_high().unwrap_or_default();
         self.enable.set_high().unwrap_or_default();
 
